@@ -8,12 +8,11 @@ from datetime import datetime
 from time import sleep
 from swiftclient import client
 
-from ftpcloudfs.constants import default_address, default_port
+from ftpcloudfs.constants import default_address, default_port, \
+    default_ks_service_type, default_ks_endpoint_type, \
+    default_ks_tenant_separator, default_ks_domain_separator
 from ftpcloudfs.fs import ListDirCache
 
-#import logging
-#logging.getLogger().setLevel(logging.DEBUG)
-#logging.basicConfig(level=logging.DEBUG)
 
 class FtpObjectStorageFSTest(unittest.TestCase):
     ''' FTP Cloud FS main test '''
@@ -38,13 +37,43 @@ class FtpObjectStorageFSTest(unittest.TestCase):
         self.container = "ftpcloudfs_testing"
         self.cnx.mkd("/%s" % self.container)
         self.cnx.cwd("/%s" % self.container)
-        if 'OS_KEYSTONE_REGION_NAME' in os.environ:
-            auth_version = '2.0'
-            tenant_name, username = self.username.split(os.environ.get("OS_KEYSTONE_TENANT_SEPARATOR", ":"), 1)
-            self.conn = client.Connection(user=username, key=self.api_key, authurl=self.auth_url, auth_version=auth_version, tenant_name=tenant_name)
-        else:
-            auth_version = '1'
-            self.conn = client.Connection(user=self.username, key=self.api_key, authurl=self.auth_url, auth_version=auth_version)
+
+        kwargs = dict(authurl=self.auth_url, auth_version="1.0")
+
+        region_name = os.environ.get('OS_KEYSTONE_REGION_NAME')
+        if region_name:
+            tenant_separator = os.environ.get('OS_KEYSTONE_TENANT_SEPARATOR', default_ks_tenant_separator)
+            tenant_name, self.username = self.username.split(tenant_separator, 1)
+            self.real_user = self.username
+
+            kwargs['os_options'] = dict(
+                service_type=os.environ.get('OS_KEYSTONE_SERVICE_TYPE', default_ks_service_type),
+                endpoint_type=os.environ.get('OS_KEYSTONE_ENDPOINT_TYPE', default_ks_endpoint_type),
+                region_name=region_name,
+            )
+
+            kwargs['auth_version'] = os.environ.get('OS_KEYSTONE_API_VERSION', '2.0')
+            if kwargs['auth_version'] == "3":
+                domain_separator = os.environ.get('OS_KEYSTONE_DOMAIN_SEPARATOR', default_ks_domain_separator)
+                try:
+                    self.username, user_domain_name = self.username.split(domain_separator, 1)
+                except ValueError:
+                    user_domain_name = "default"
+                self.real_user = self.username
+
+                try:
+                    project_name, project_domain_name = tenant_name.split(domain_separator, 1)
+                except ValueError:
+                    project_name = tenant_name
+                    project_domain_name = "default"
+
+                kwargs["os_options"]["project_name"] = project_name
+                kwargs["os_options"]["project_domain_name"] = project_domain_name
+                kwargs["os_options"]["user_domain_name"] = user_domain_name
+            else:
+                kwargs["tenant_name"] = tenant_name
+
+        self.conn = client.Connection(user=self.username, key=self.api_key, **kwargs)
 
     def create_file(self, path, contents):
         '''Create path with contents'''

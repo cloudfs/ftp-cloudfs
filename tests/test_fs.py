@@ -6,6 +6,8 @@ from datetime import datetime
 from swiftclient import client
 from ftpcloudfs.fs import ObjectStorageFS, ListDirCache
 from ftpcloudfs.errors import IOSError
+from ftpcloudfs.constants import default_ks_service_type, default_ks_endpoint_type, \
+    default_ks_tenant_separator, default_ks_domain_separator
 
 import logging
 logging.getLogger("swiftclient").setLevel(logging.CRITICAL)
@@ -25,18 +27,51 @@ class ObjectStorageFSTest(unittest.TestCase):
             cls.username = os.environ.get('OS_API_USER')
             cls.api_key  = os.environ.get('OS_API_KEY')
             cls.auth_url = os.environ.get('OS_AUTH_URL')
-            if 'OS_KEYSTONE_REGION_NAME' in os.environ:
-                keystone = {'region_name'      : os.environ.get('OS_KEYSTONE_REGION_NAME'),
-                            'tenant_separator' : os.environ.get('OS_KEYSTONE_TENANT_SEPARATOR', ':'),
-                            'service_type'     : os.environ.get('OS_KEYSTONE_SERVICE_TYPE', 'object-store'),
-                            'endpoint_type'    : os.environ.get('OS_KEYSTONE_ENDPOINT_TYPE', 'publicURL')}
-                cls.cnx = ObjectStorageFS(self.username, self.api_key, self.auth_url, keystone)
-                tenant_name, username = cls.username.split(keystone['tenant_separator'], 1)
-                cls.conn = client.Connection(user=username, tenant_name=tenant_name,key=self.api_key, authurl=self.auth_url, auth_version='2.0')
 
+            kwargs = dict(authurl=cls.auth_url, auth_version="1.0")
+
+            region_name = os.environ.get('OS_KEYSTONE_REGION_NAME')
+            if region_name:
+                keystone = {
+                    'region_name': region_name,
+                    'tenant_separator': os.environ.get('OS_KEYSTONE_TENANT_SEPARATOR', default_ks_tenant_separator),
+                    'domain_separator': os.environ.get('OS_KEYSTONE_DOMAIN_SEPARATOR', default_ks_domain_separator),
+                    'service_type': os.environ.get('OS_KEYSTONE_SERVICE_TYPE', default_ks_service_type),
+                    'endpoint_type': os.environ.get('OS_KEYSTONE_ENDPOINT_TYPE', default_ks_endpoint_type),
+                    'auth_version': os.environ.get('OS_KEYSTONE_API_VERSION', '2.0'),
+                }
+                cls.cnx = ObjectStorageFS(cls.username, cls.api_key, cls.auth_url, keystone)
+
+                tenant_name, cls.username = cls.username.split(keystone['tenant_separator'], 1)
+
+                kwargs['auth_version'] = keystone['auth_version']
+                kwargs['os_options'] = dict(
+                    service_type=keystone['service_type'],
+                    endpoint_type=keystone['endpoint_type'],
+                    region_name=keystone['region_name'],
+                )
+                if keystone['auth_version'] == "3":
+                    try:
+                        cls.username, user_domain_name = cls.username.split(keystone['domain_separator'], 1)
+                    except ValueError:
+                        user_domain_name = "default"
+
+                    try:
+                        project_name, project_domain_name = tenant_name.split(keystone['domain_separator'], 1)
+                    except ValueError:
+                        project_name = tenant_name
+                        project_domain_name = "default"
+
+                    kwargs["os_options"]["project_name"] = project_name
+                    kwargs["os_options"]["project_domain_name"] = project_domain_name
+                    kwargs["os_options"]["user_domain_name"] = user_domain_name
+                else:
+                    kwargs["tenant_name"] = tenant_name
             else:
-                cls.cnx = ObjectStorageFS(self.username, self.api_key, self.auth_url)
-                cls.conn = client.Connection(user=self.username, key=self.api_key, authurl=self.auth_url)
+                cls.cnx = ObjectStorageFS(cls.username, cls.api_key, cls.auth_url)
+
+            cls.conn = client.Connection(user=cls.username, key=cls.api_key, **kwargs)
+
         self.container = "ftpcloudfs_testing"
         self.cnx.mkdir("/%s" % self.container)
         self.cnx.chdir("/%s" % self.container)
@@ -748,6 +783,7 @@ class MockupOSFS(object):
     auth_url = 'https://auth.service.fake/v1'
     username = 'user'
     hide_part_dir = False
+    storage_policy = None
 
     def __init__(self, num_objects, objects=None):
         if objects and len(objects) != num_objects:

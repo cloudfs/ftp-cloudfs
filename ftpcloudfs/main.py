@@ -17,7 +17,8 @@ from server import ObjectStorageFtpFS
 from fs import ObjectStorageFD
 from constants import version, default_address, default_port, \
     default_config_file, default_banner, \
-    default_ks_tenant_separator, default_ks_service_type, default_ks_endpoint_type
+    default_ks_tenant_separator, default_ks_domain_separator, \
+    default_ks_service_type, default_ks_endpoint_type
 from monkeypatching import MyFTPHandler
 from multiprocessing import Manager
 
@@ -124,7 +125,7 @@ class Main(object):
                                   'keystone-auth-version': '2.0',
                                   'keystone-region-name': None,
                                   'keystone-tenant-separator': default_ks_tenant_separator,
-                                  'keystone-domain-separator': '@',
+                                  'keystone-domain-separator': default_ks_domain_separator,
                                   'keystone-service-type': default_ks_service_type,
                                   'keystone-endpoint-type': default_ks_endpoint_type,
                                   'rackspace-service-net' : 'no',
@@ -256,7 +257,8 @@ class Main(object):
                           dest="domain_separator",
                           default=self.config.get('ftpcloudfs', 'keystone-domain-separator'),
                           help="Character used to separate project_name/project_domain_name " + \
-                               "and username/user_domain_name in Keystone auth v3 (default: @)")
+                               "and username/user_domain_name in Keystone auth v3 " + \
+                               "(default: %s)" %s default_ks_domain_separator)
 
         parser.add_option('--keystone-service-type',
                           type="str",
